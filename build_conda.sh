@@ -3,35 +3,52 @@
 set -ex
 
 # create conda
-yes '' | "${SHELL}" <(curl -L micro.mamba.pm/install.sh)
-export PS1=tmp
-mkdir -p /root/.cargo/
-touch /root/.cargo/env
-source ~/.bashrc
-
+# yes '' | "${SHELL}" <(curl -L micro.mamba.pm/install.sh)
+# export PS1=tmp
+# mkdir -p /root/.cargo/
+# touch /root/.cargo/env
+export PATH="$HOME/.local/bin:$HOME/micromamba/bin:$PATH"
+MICROMAMBA_BIN="${MICROMAMBA_BIN:-$(command -v micromamba || true)}"
+if [ -z "$MICROMAMBA_BIN" ]; then
+  MICROMAMBA_BIN="$HOME/micromamba/bin/micromamba"
+fi
+eval "$($MICROMAMBA_BIN shell hook -s bash)"
 micromamba create -n slime python=3.12 pip -c conda-forge -y
 micromamba activate slime
 export CUDA_HOME="$CONDA_PREFIX"
 export SGLANG_COMMIT="24c91001cf99ba642be791e099d358f4dfe955f5"
 export MEGATRON_COMMIT="3714d81d418c9f1bca4594fc35f9e8289f652862"
 
-export BASE_DIR=${BASE_DIR:-"/root"}
-cd $BASE_DIR
+export BASE_DIR=${BASE_DIR:-"$HOME"}
+echo "BASE_DIR is set to $BASE_DIR"
+# export BASE_DIR=${BASE_DIR:-"/root"}
+# cd $BASE_DIR
 
 # install cuda 12.9 as it's the default cuda version for torch
 micromamba install -n slime cuda cuda-nvtx cuda-nvtx-dev nccl -c nvidia/label/cuda-12.9.1 -y
 micromamba install -n slime -c conda-forge cudnn -y
 
+micromamba activate slime
 # prevent installing cuda 13.0 for sglang
 pip install cuda-python==13.1.0
 pip install torch==2.9.1 torchvision==0.24.1 torchaudio==2.9.1 --index-url https://download.pytorch.org/whl/cu129
 
 # install sglang
-git clone https://github.com/sgl-project/sglang.git
-cd sglang
-git checkout ${SGLANG_COMMIT}
+cd $BASE_DIR
+if [ -d sglang/.git ]; then
+  cd sglang && git fetch && git checkout ${SGLANG_COMMIT} && cd ..
+else
+  git clone https://github.com/sgl-project/sglang.git
+  cd sglang && git checkout ${SGLANG_COMMIT} && cd ..
+fi
+# git clone https://github.com/sgl-project/sglang.git
+# cd sglang
+# git checkout ${SGLANG_COMMIT}
+
 # Install the python packages
+pushd sglang >/dev/null
 pip install -e "python[all]"
+popd >/dev/null
 
 
 pip install cmake ninja
@@ -40,7 +57,10 @@ pip install cmake ninja
 # the newest version megatron supports is v2.7.4.post1
 MAX_JOBS=64 pip -v install flash-attn==2.7.4.post1 --no-build-isolation
 
-pip install git+https://github.com/ISEEKYAN/mbridge.git@89eb10887887bc74853f89a4de258c0702932a1c --no-deps
+# pip install git+https://github.com/ISEEKYAN/mbridge.git@89eb10887887bc74853f89a4de258c0702932a1c --no-deps
+pip install git+https://github.com/ISEEKYAN/mbridge.git --no-deps
+# # use archive URL to avoid git clone failures on GitHub (HTTP 500)
+# pip install https://github.com/ISEEKYAN/mbridge/archive/89eb10887887bc74853f89a4de258c0702932a1c.zip --no-deps
 pip install --no-build-isolation "transformer_engine[pytorch]==2.10.0"
 pip install flash-linear-attention==0.4.0
 NVCC_APPEND_FLAGS="--threads 4" \
@@ -54,23 +74,25 @@ pip install nvidia-modelopt[torch]>=0.37.0 --no-build-isolation
 
 # megatron
 cd $BASE_DIR
-git clone https://github.com/NVIDIA/Megatron-LM.git --recursive && \
-  cd Megatron-LM/ && git checkout ${MEGATRON_COMMIT} && \
-  pip install -e .
+if [ -d Megatron-LM/.git ]; then
+  cd Megatron-LM && git fetch && git checkout ${MEGATRON_COMMIT} && pip install -e .
+  cd ..
+else
+  git clone https://github.com/NVIDIA/Megatron-LM.git --recursive && \
+    cd Megatron-LM/ && git checkout ${MEGATRON_COMMIT} && \
+    pip install -e . && cd ..
+fi
 
 # install slime and apply patches
 
-# if slime does not exist locally, clone it
+# if slime does not exist locally, clone it; otherwise reuse existing checkout
 if [ ! -d "$BASE_DIR/slime" ]; then
   cd $BASE_DIR
-  git clone  https://github.com/THUDM/slime.git
-  cd slime/
-  export SLIME_DIR=$BASE_DIR/slime
-  pip install -e .
-else
-  export SLIME_DIR=$BASE_DIR/
-  pip install -e .
+  git clone https://github.com/THUDM/slime.git
 fi
+export SLIME_DIR="$BASE_DIR/slime"
+cd "$SLIME_DIR"
+pip install -e .
 
 # https://github.com/pytorch/pytorch/issues/168167
 pip install nvidia-cudnn-cu12==9.16.0.29
@@ -81,3 +103,4 @@ cd $BASE_DIR/sglang
 git apply $SLIME_DIR/docker/patch/v0.5.7/sglang.patch
 cd $BASE_DIR/Megatron-LM
 git apply $SLIME_DIR/docker/patch/v0.5.7/megatron.patch
+echo "Conda build completed."
