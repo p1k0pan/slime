@@ -1,3 +1,20 @@
+# Project
+## 无docker安装slime方法
+```
+bash build_conda_first.sh
+bash build_conda_second.sh
+bash build_conda_third.sh
+```
+分段理由是防止中途因为网络原因中断又要重新下载
+需要修改的地方是
+1. 环境名字，这里的默认名字是`slime_pjh_v3`，修改成你的就行
+2. BASE_DIR，这里是你的主目录，也就是slime文件夹上一级目录，这里是`/mnt/workspace/users/xintong/pjh`，修改成你的
+
+## 训练example
+`bash _run_geo3k_vlm.sh`，修改`SLIME_ENVIRON`成你的环境名称
+
+
+
 # slime
 
 [中文版](./README_zh.md)
