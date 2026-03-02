@@ -1,27 +1,53 @@
 #!/bin/bash
 
-# Qwen3 VL RL training on geo3k dataset
-# Supports both megatron and fsdp training backends
-# Usage: 
-#   SLIME_SCRIPT_TRAIN_BACKEND=fsdp ./run_geo3k_vlm.sh
-#   SLIME_SCRIPT_MODEL_NAME=Qwen3-VL-30B-A3B-Thinking ./run_geo3k_vlm.sh
+
 export PATH=$CONDA_PREFIX/bin:$PATH
-# echo "DEBUG: PATH for Ray is: $PATH"
-# PTXAS_PATH="$CONDA_PREFIX/bin/ptxas"
-export LD_LIBRARY_PATH=/home/hanfeng.wxt/micromamba/envs/slime_pjh_v3_backkup/lib/python3.12/site-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH
+
+# export LD_LIBRARY_PATH=/home/hanfeng.wxt/micromamba/envs/slime_pjh_v3_backkup/lib/python3.12/site-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH
 export WANDB_API_KEY=1526cd13c8d1f8c8529ea57f23d553b20b03451c # set your wandb api key
-# export CUDA_VISIBLE_DEVICES=5,6
+
 # Configuration
 TRAIN_BACKEND=${SLIME_SCRIPT_TRAIN_BACKEND:-"megatron"}
 # MODEL_NAME=${SLIME_SCRIPT_MODEL_NAME:-"Qwen3-VL-8B-Thinking"}
 MODEL_NAME=${SLIME_SCRIPT_MODEL_NAME:-"Qwen3-VL-30B-A3B-Thinking"}
-MODEL_ROOT=${SLIME_SCRIPT_MODEL_ROOT:-"/mnt/workspace/users/xintong/pjh/models"}
+# MODEL_ROOT=${SLIME_SCRIPT_MODEL_ROOT:-"/mnt/workspace/users/xintong/pjh/models"}
+MODEL_ROOT=${SLIME_SCRIPT_MODEL_ROOT:-"/data/oss_bucket_0/users/xintong/pjh/models"}
 DATASET_NAME=${SLIME_SCRIPT_DATASET_NAME:-"chenhegu/geo3k_imgurl"}
 NUM_GPUS=${SLIME_SCRIPT_NUM_GPUS:-8}
 DATASET_LOCAL_NAME=$(basename "$DATASET_NAME")
-DATASET_ROOT=${SLIME_SCRIPT_DATASET_ROOT:-"/mnt/workspace/users/xintong/pjh/datasets"}
-OUTPUT_DIR=${SLIME_SCRIPT_OUTPUT_DIR:-"/mnt/workspace/users/xintong/pjh/All_results/slime"}
-OUT_NAME=${SLIME_SCRIPT_OUTPUT_NAME:-"geo3k_test_v3_backkup_"${MODEL_NAME}}
+DATASET_ROOT=${SLIME_SCRIPT_DATASET_ROOT:-"/data/oss_bucket_0/users/xintong/pjh/datasets"}
+OUTPUT_DIR=${SLIME_SCRIPT_OUTPUT_DIR:-"/data/oss_bucket_0/users/xintong/team/pjh/All_results/slime"}
+OUT_NAME=${SLIME_SCRIPT_OUTPUT_NAME:-"geo3k_test_"${MODEL_NAME}}
+
+mkdir -p "${OUTPUT_DIR}"
+
+# Validate required paths
+for _path in \
+   "/data/oss_bucket_0/users/xintong/team/pjh/slime" \
+   "/data/oss_bucket_0/users/xintong/pjh/Megatron-LM" \
+   "${MODEL_ROOT}" \
+   "${DATASET_ROOT}"
+do
+   if [ ! -d "$_path" ]; then
+      echo "Error: 文件地址不存在: $_path"
+      exit 1
+   fi
+done
+
+# Log to file (set SLIME_SCRIPT_LOG=0 to disable)
+if [ "${SLIME_SCRIPT_LOG:-1}" = "1" ]; then
+   LOG_DIR=${OUTPUT_DIR}/${OUT_NAME}/logs
+   mkdir -p "${LOG_DIR}"
+   # LOG_FILE=${SLIME_SCRIPT_LOG_FILE:-"${LOG_DIR}/geo3k_vlm_${MODEL_NAME}_$(date +%Y%m%d_%H%M%S).log"}
+   LOG_FILE=${SLIME_SCRIPT_LOG_FILE:-"${LOG_DIR}/geo3k_vlm_${MODEL_NAME}.log"}
+   exec > >(tee -a "${LOG_FILE}") 2>&1
+fi
+
+conda env list
+micromamba env list
+pip list
+
+echo "configuration checked"
 
 
 # Validate MODEL_NAME
@@ -75,13 +101,7 @@ set -ex
 
 export PYTHONBUFFERED=16
 
-# Log to file (set SLIME_SCRIPT_LOG=0 to disable)
-if [ "${SLIME_SCRIPT_LOG:-1}" = "1" ]; then
-   LOG_DIR=${OUTPUT_DIR}/${OUT_NAME}/logs
-   mkdir -p "${LOG_DIR}"
-   LOG_FILE=${SLIME_SCRIPT_LOG_FILE:-"${LOG_DIR}/geo3k_vlm_${MODEL_NAME}_$(date +%Y%m%d_%H%M%S).log"}
-   exec > >(tee -a "${LOG_FILE}") 2>&1
-fi
+
 
 # Detect NVLink
 NVLINK_COUNT=$(nvidia-smi topo -m 2>/dev/null | grep -o 'NV[0-9][0-9]*' | wc -l)
@@ -202,7 +222,7 @@ BACKEND_ARGS=(
    
 # get MODEL_ARGS from scripts/models for megatron backend
 # SLIME_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." &>/dev/null && pwd)"
-SLIME_DIR="/mnt/workspace/users/xintong/pjh/slime"
+SLIME_DIR="/data/oss_bucket_0/users/xintong/team/pjh/slime"
 # MODEL_ARGS_FILE=$(echo "$MODEL_NAME" | sed 's/-Instruct//g; s/-Thinking//g; s/Qwen3-VL-/qwen3-/g; s/-2B/-1.7B/g')
 MODEL_ARGS_FILE=$(echo "$MODEL_NAME" | sed 's/-Instruct//g; s/-Thinking//g; s/-FP8//g; s/Qwen3-VL-/qwen3-/g; s/-2B/-1.7B/g')
 # VL models require rotary-base 5000000
@@ -220,7 +240,7 @@ fi
 # Build runtime env
 RUNTIME_ENV_JSON="{
   \"env_vars\": {
-    \"PYTHONPATH\": \"/mnt/workspace/users/xintong/pjh/Megatron-LM/\",
+    \"PYTHONPATH\": \"/data/oss_bucket_0/users/xintong/pjh/Megatron-LM/\",
     \"CUDA_DEVICE_MAX_CONNECTIONS\": \"1\",
     \"NCCL_NVLS_ENABLE\": \"${HAS_NVLINK}\"
   }
